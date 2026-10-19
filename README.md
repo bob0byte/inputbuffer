@@ -17,4 +17,4 @@ If the run shows a red X, open it, copy the error text and send it to me.
 ## 3. Settings
 In game: Geode button -> Input Buffer -> gear icon.
 
-Targets Geode 5.10.1 / GD 2.2081. If your GD version is different, change the numbers in `mod.json`.
+Targets Geode 5.11.2 / GD 2.2081. If your GD version is different, change the numbers in `mod.json`.
