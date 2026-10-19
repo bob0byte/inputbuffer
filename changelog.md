@@ -1,3 +1,8 @@
+# v5.0.0
+- Wave only: all features are now active only in wave; other gamemodes are untouched
+- Renamed to Wave Assist (community.wave-assist)
+- Input buffer removed (it only applied to other gamemodes)
+
 # v4.0.0
 - Click Shifting: deadly clicks register on the first safe tick instead of being dropped
 - Decisions now run every physics tick (better for wave)

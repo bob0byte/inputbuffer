@@ -1,5 +1,5 @@
 // ============================================================
-//  Input Buffer v4 (Geode, Windows)
+//  Wave Assist v5 (Geode, Windows) - everything below is active in wave only
 //
 //  1. Input buffer: a jump tapped in the air is replayed on the
 //     physics tick you land, if it was within the buffer window.
@@ -292,7 +292,7 @@ class $modify(IBPlayerObject, PlayerObject) {
 class $modify(IBGameLayer, GJBaseGameLayer) {
 public:
     bool bufferActive() {
-        if (!setting<bool>("enabled")) return false;
+        return false; // wave-only build: the buffer only applies to other modes
         if (m_isEditor) return false;
         if (setting<bool>("platformer-only") && !m_isPlatformer) return false;
         return true;
@@ -319,6 +319,7 @@ public:
         if (!pl || pl->m_hasCompletedLevel) return false;
         auto p = m_player1;
         if (!p || p->m_isDead) return false;
+        if (!p->m_isDart) return false;                       // wave only
         if (isTouchingOrb(p) || p->m_isDashing) return false; // orbs and dashes: you're in control
         return true;
     }
@@ -602,7 +603,7 @@ class $modify(IBPlayLayer, PlayLayer) {
         auto f = m_fields.self();
         bool on = setting<bool>("smart-click") || setting<bool>("auto-click");
         if (setting<bool>("smart-click-practice-only") && !m_isPracticeMode) on = false;
-        bool show = on && setting<bool>("smart-click-indicator");
+        bool show = on && setting<bool>("smart-click-indicator") && m_player1 && m_player1->m_isDart;
         if (!f->label) {
             if (!show) return;
             f->label = CCLabelBMFont::create("Smart Click", "bigFont.fnt");
@@ -624,6 +625,7 @@ class $modify(IBPlayLayer, PlayLayer) {
         if (setting<bool>("trajectory-practice-only") && !m_isPracticeMode) return;
         auto real = m_player1;
         if (!real || real->m_isDead || m_hasCompletedLevel || real->m_isDashing) return;
+        if (!real->m_isDart) return; // wave only
         if (!ensureGhosts(this)) return;
 
         if (!f->draw) {
@@ -642,7 +644,7 @@ class $modify(IBPlayLayer, PlayLayer) {
         drawPath(d, b, ccc4f(1.f, 0.3f, 0.3f, 0.85f), 0, (int)b.points.size());
         drawPath(d, a, ccc4f(0.3f, 1.f, 0.4f, 0.9f), 0, (int)a.points.size());
 
-        if (setting<bool>("show-buffer-zone") && setting<bool>("enabled") &&
+        if (false &&
             b.landingIndex > 0 && b.landingIndex < (int)b.points.size() &&
             isGroundJumpMode(real) && !real->m_isOnGround) {
             int start = b.landingIndex - msToTicks(setting<int64_t>("buffer-window"));

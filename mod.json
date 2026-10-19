@@ -3,46 +3,16 @@
 	"gd": {
 		"win": "2.2081"
 	},
-	"id": "community.input-buffer",
-	"name": "Input Buffer",
-	"version": "v4.0.0",
+	"id": "community.wave-assist",
+	"name": "Wave Assist",
+	"version": "v5.0.0",
 	"developer": "Community",
-	"description": "Input buffer, trajectory preview, and click shifting so clicks register on the first safe tick.",
+	"description": "Wave-only trajectory preview and click shifting so wave inputs register on the first safe tick.",
 	"tags": [
 		"gameplay",
 		"utility"
 	],
 	"settings": {
-		"buffer-title": {
-			"type": "title",
-			"name": "Input Buffer"
-		},
-		"enabled": {
-			"type": "bool",
-			"default": true,
-			"name": "Enable Input Buffer",
-			"description": "Tap jump slightly before landing and the jump comes out on the landing tick."
-		},
-		"buffer-window": {
-			"type": "int",
-			"default": 150,
-			"min": 10,
-			"max": 500,
-			"name": "Buffer Window (ms)",
-			"description": "How early you can tap before landing and still get the jump. At 240 physics ticks per second, 150 ms is about 36 ticks.",
-			"control": {
-				"slider": true,
-				"slider-step": 10,
-				"arrows": true,
-				"arrow-step": 10
-			}
-		},
-		"platformer-only": {
-			"type": "bool",
-			"default": false,
-			"name": "Platformer Levels Only",
-			"description": "Only buffer inputs in platformer levels."
-		},
 		"trajectory-title": {
 			"type": "title",
 			"name": "Trajectory"
@@ -51,7 +21,7 @@
 			"type": "bool",
 			"default": true,
 			"name": "Show Trajectory",
-			"description": "Draws two paths ahead of your icon. Green: where you go if you click now. Red: where you go if you don't click."
+			"description": "In wave, draws two paths ahead of you. Green: where you go if you hold/click now. Red: where you go if you let go."
 		},
 		"trajectory-length": {
 			"type": "int",
@@ -67,12 +37,6 @@
 				"arrow-step": 100
 			}
 		},
-		"show-buffer-zone": {
-			"type": "bool",
-			"default": true,
-			"name": "Show Buffer Zone",
-			"description": "Highlights in yellow the part of the no-click path where an early tap will be caught by the buffer."
-		},
 		"trajectory-practice-only": {
 			"type": "bool",
 			"default": false,
@@ -87,7 +51,7 @@
 			"type": "bool",
 			"default": true,
 			"name": "Enable Click Shifting",
-			"description": "When a click (or a release, in ship/wave/robot) would kill you and not doing it is safe, it's held back and registers on the first physics tick where it's safe. Turns itself off on orbs and while dashing."
+			"description": "In wave, when pressing or letting go would kill you and not doing it is safe, the input is held back and registers on the first physics tick where it's safe. Turns itself off on orbs and while dashing."
 		},
 		"smart-max-delay": {
 			"type": "int",
@@ -121,7 +85,7 @@
 			"type": "bool",
 			"default": false,
 			"name": "Auto Click",
-			"description": "Also clicks (or holds) for you when not clicking would kill you and clicking is safe. This plays for you: don't use it for verifying or rated runs."
+			"description": "In wave, also holds or lets go for you when your current input would kill you and the other one is safe. This plays for you: don't use it for verifying or rated runs."
 		},
 		"smart-click-practice-only": {
 			"type": "bool",
