@@ -13,7 +13,7 @@ Before applying a press or release, it scans what's in front of you:
 - **Big safe area**: your input goes through instantly
 - **Small safe area**: your input is moved to the middle of the window, the safest tick
 - **Deadly right now**: it waits and applies your input at the safest tick ahead
-- A tap that isn't safe anywhere within the Max Delay is dropped
+- **No safe tick at all** (frame-perfect or impossible): your input is cancelled
 
 It steps aside on orbs and dash orbs.
 

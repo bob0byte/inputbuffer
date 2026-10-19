@@ -5,7 +5,7 @@
 	},
 	"id": "community.wave-assist",
 	"name": "Wave Assist",
-	"version": "v5.1.0",
+	"version": "v5.2.0",
 	"developer": "Community",
 	"description": "Wave-only trajectory preview and click shifting so wave inputs register on the first safe tick.",
 	"tags": [
@@ -59,7 +59,7 @@
 			"min": 10,
 			"max": 500,
 			"name": "Max Delay (ms)",
-			"description": "How far ahead to look for a safe tick. A tap that isn't safe anywhere in this range is dropped.",
+			"description": "How far ahead to look for a safe tick. If no tick in this range is safe, your input is cancelled.",
 			"control": {
 				"slider": true,
 				"slider-step": 10,

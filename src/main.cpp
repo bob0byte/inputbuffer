@@ -402,10 +402,9 @@ public:
             return firstSafe + (runLen - 1) / 2;     // small window: its middle is safest
         }
 
-        // nothing safe in range
-        int stayLife = survival(this, g_ghostA, real, stayIn, stayIn, 0, maxK + horizon);
-        if (stayLife > maxK + horizon) return -1;    // not doing it is safe: hold back
-        return bestK;                                // everything dies: last as long as possible
+        // no safe tick at all (frame-perfect or impossible): cancel the input
+        (void)bestK; (void)bestLife;
+        return -1;
     }
 
     // Runs at the start of every physics tick, and right when you click.

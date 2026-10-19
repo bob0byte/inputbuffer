@@ -1,3 +1,6 @@
+# v5.2.0
+- If there is no safe tick at all, the input is cancelled
+
 # v5.1.0
 - Scans ahead before applying an input: big safe area = instant, small = middle of the window, deadly = waits for the safest tick
 - New setting: Big Safe Area (ms)
