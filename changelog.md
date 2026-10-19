@@ -1,3 +1,11 @@
+# v4.0.0
+- Click Shifting: deadly clicks register on the first safe tick instead of being dropped
+- Decisions now run every physics tick (better for wave)
+- Smart features step aside on orbs and dash orbs
+- Ghost wave trails hidden
+- Auto Click is now a separate option (off by default)
+- New mod id: community.input-buffer
+
 # v3.0.0
 - Smart Click: blocks deadly clicks, clicks for you when needed
 - Lookahead, practice-only and label settings

@@ -1,17 +1,20 @@
 // ============================================================
-//  Input Buffer v3 (Geode, Windows)
+//  Input Buffer v4 (Geode, Windows)
 //
 //  1. Input buffer: a jump tapped in the air is replayed on the
 //     physics tick you land, if it was within the buffer window.
 //  2. Trajectory: two invisible "ghost" players are cloned from
-//     you every frame and run through GD's own physics/collision:
+//     you and run through GD's own physics/collision:
 //       green  = path if you click / keep holding
 //       red    = path if you don't click / let go
 //       yellow = part of the red path where a tap gets buffered
-//  3. Smart Click (uses the two paths):
-//       - your click is ignored if clicking dies and not clicking is safe
-//       - it clicks for you if not clicking dies and clicking is safe
-//       - both die, or you're on an orb: you're in full control
+//  3. Click Shifting (per physics tick):
+//       when a click (or release) would kill you and not doing it
+//       is safe, it's held back and registers on the first tick
+//       where it's safe. Dropped if never safe within Max Delay.
+//  4. Auto Click (optional): clicks for you when not clicking
+//     dies and clicking is safe.
+//  Smart features step aside on orbs and while dashing.
 // ============================================================
 #include <Geode/Geode.hpp>
 #include <Geode/modify/GJBaseGameLayer.hpp>
@@ -24,22 +27,9 @@
 using namespace geode::prelude;
 
 // ------------------------------------------------------------
-// shared state
+// helpers
 // ------------------------------------------------------------
 static constexpr int JUMP = 1;
-
-static PlayerObject* g_ghostA = nullptr;   // "click / hold" ghost
-static PlayerObject* g_ghostB = nullptr;   // "no click / release" ghost
-static bool g_simulating = false;
-static bool g_ghostStopped = false;        // ghost touched orb/pad/portal
-static bool g_ghostDied = false;
-static float g_lastRealDt = 0.25f;         // dt GD passes to PlayerObject::update per tick
-static uint64_t g_tick = 0;
-static double g_msPerTick = 1000.0 / 240.0;
-
-static bool isGhost(PlayerObject* p) {
-    return p && (p == g_ghostA || p == g_ghostB);
-}
 
 static double nowMs() {
     using namespace std::chrono;
@@ -51,11 +41,9 @@ static T setting(char const* key) {
     return Mod::get()->getSettingValue<T>(key);
 }
 
-// Ground-jump modes. Ship/UFO/wave/swing respond mid-air, so no buffering there.
 static bool isGroundJumpMode(PlayerObject* p) {
     return !p->m_isShip && !p->m_isBird && !p->m_isDart && !p->m_isSwing;
 }
-// Modes where holding (not tapping) is the input.
 static bool isHoldMode(PlayerObject* p) {
     return p->m_isShip || p->m_isDart || p->m_isRobot;
 }
@@ -64,8 +52,26 @@ static bool isTouchingOrb(PlayerObject* p) {
 }
 
 // ------------------------------------------------------------
-// Input state for player 1 (buffer + smart click)
+// global state
 // ------------------------------------------------------------
+static PlayerObject* g_ghostA = nullptr;
+static PlayerObject* g_ghostB = nullptr;
+static GJBaseGameLayer* g_ghostLayer = nullptr;
+static bool g_simulating = false;
+static bool g_ghostStopped = false;
+static bool g_ghostDied = false;
+static float g_lastRealDt = 0.25f;
+static uint64_t g_tick = 0;
+static double g_msPerTick = 1000.0 / 240.0;
+
+static bool isGhost(PlayerObject* p) {
+    return p && (p == g_ghostA || p == g_ghostB);
+}
+
+static int msToTicks(int64_t ms) {
+    return std::clamp((int)(ms / g_msPerTick), 1, 1000);
+}
+
 struct BufferState {
     bool pending = false;
     double pressTime = 0.0;
@@ -76,26 +82,162 @@ static BufferState g_p1, g_p2;
 
 struct SmartState {
     bool gdPressed = false;       // what GD currently thinks (P1 jump)
-    bool suppressed = false;      // user is holding but we hid it from GD
-    bool autoHeld = false;        // we are holding for the user (hold modes)
-    bool tapRelease = false;      // release our auto-tap on the next tick
-    bool pressDies = false;       // last frame: clicking now dies soon
-    bool releaseDies = false;     // last frame: not clicking dies soon
-    bool valid = false;           // the two flags above are fresh
-    int autoClicks = 0;
-    int blockedClicks = 0;
+    bool tapRequest = false;      // user pressed, not yet given to GD
+    double requestTime = 0.0;
+    bool autoHeld = false;        // Auto Click is holding (hold modes)
+    bool tapRelease = false;      // release a handed-back tap next tick
+    uint64_t pressTick = 0;       // tick the last press reached GD
+    bool wasActive = false;
 };
 static SmartState g_smart;
 static bool g_injecting = false;
-static bool g_smartActiveNow = false; // set by PlayLayer each frame
 
 static void resetInputState() {
     g_p1 = {};
     g_p2 = {};
-    int a = g_smart.autoClicks, b = g_smart.blockedClicks;
     g_smart = {};
-    g_smart.autoClicks = a;
-    g_smart.blockedClicks = b;
+}
+
+// ------------------------------------------------------------
+// ghosts + simulation
+// ------------------------------------------------------------
+enum class SimInput { Release, Hold, Tap };
+
+struct PathResult {
+    std::vector<CCPoint> points;
+    bool died = false;
+    bool stopped = false;
+    int deathIndex = -1;
+    int landingIndex = -1;
+};
+
+static void hideGhostVisuals(PlayerObject* g) {
+    g->setVisible(false);
+    if (g->m_regularTrail) g->m_regularTrail->setVisible(false);
+    if (g->m_waveTrail) g->m_waveTrail->setVisible(false);
+}
+
+static PlayerObject* makeGhost(GJBaseGameLayer* layer) {
+    auto parent = layer->m_objectLayer;
+    if (!parent) return nullptr;
+    auto before = parent->getChildrenCount();
+    auto ghost = PlayerObject::create(1, 1, layer, parent, false);
+    if (!ghost) return nullptr;
+    ghost->m_playEffects = false;
+    parent->addChild(ghost);
+    auto children = parent->getChildren();
+    for (auto i = before; children && i < children->count(); i++) {
+        if (auto node = typeinfo_cast<CCNode*>(children->objectAtIndex(i))) node->setVisible(false);
+    }
+    hideGhostVisuals(ghost);
+    ghost->retain();
+    return ghost;
+}
+
+static void releaseGhosts() {
+    for (auto g : {g_ghostA, g_ghostB}) {
+        if (g) {
+            g->removeFromParent();
+            g->release();
+        }
+    }
+    g_ghostA = g_ghostB = nullptr;
+    g_ghostLayer = nullptr;
+}
+
+static bool ensureGhosts(GJBaseGameLayer* layer) {
+    if (g_ghostLayer != layer) {
+        // different level: forget old ghosts (their layer already cleaned them up)
+        g_ghostA = g_ghostB = nullptr;
+        g_ghostLayer = layer;
+    }
+    if (!g_ghostA) g_ghostA = makeGhost(layer);
+    if (!g_ghostB) g_ghostB = makeGhost(layer);
+    return g_ghostA && g_ghostB;
+}
+
+static void syncMode(PlayerObject* g, PlayerObject* p) {
+    if (g->m_isShip && !p->m_isShip) g->toggleFlyMode(false, true);
+    if (g->m_isBall && !p->m_isBall) g->toggleRollMode(false, true);
+    if (g->m_isBird && !p->m_isBird) g->toggleBirdMode(false, true);
+    if (g->m_isDart && !p->m_isDart) g->toggleDartMode(false, true);
+    if (g->m_isRobot && !p->m_isRobot) g->toggleRobotMode(false, true);
+    if (g->m_isSpider && !p->m_isSpider) g->toggleSpiderMode(false, true);
+    if (g->m_isSwing && !p->m_isSwing) g->toggleSwingMode(false, true);
+
+    if (p->m_isShip && !g->m_isShip) g->toggleFlyMode(true, true);
+    if (p->m_isBall && !g->m_isBall) g->toggleRollMode(true, true);
+    if (p->m_isBird && !g->m_isBird) g->toggleBirdMode(true, true);
+    if (p->m_isDart && !g->m_isDart) g->toggleDartMode(true, true);
+    if (p->m_isRobot && !g->m_isRobot) g->toggleRobotMode(true, true);
+    if (p->m_isSpider && !g->m_isSpider) g->toggleSpiderMode(true, true);
+    if (p->m_isSwing && !g->m_isSwing) g->toggleSwingMode(true, true);
+}
+
+static void copyState(PlayerObject* g, PlayerObject* p) {
+    syncMode(g, p);
+    bool mini = p->m_vehicleSize != 1.0f;
+    if ((g->m_vehicleSize != 1.0f) != mini) g->togglePlayerScale(mini, true);
+    g->m_isUpsideDown = p->m_isUpsideDown;
+
+    g->copyAttributes(p);
+    g->setPosition(p->getPosition());
+    g->m_position = p->m_position;
+    g->m_yVelocity = p->m_yVelocity;
+    g->m_isOnGround = p->m_isOnGround;
+    g->m_playerSpeed = p->m_playerSpeed;
+    g->m_gravityMod = p->m_gravityMod;
+    g->m_isPlatformer = p->m_isPlatformer;
+    g->m_isGoingLeft = p->m_isGoingLeft;
+    g->m_isSideways = p->m_isSideways;
+    g->m_holdingButtons = p->m_holdingButtons;
+    g->m_isDashing = false;   // we never simulate while the real player dashes
+    g->m_isDead = false;
+    hideGhostVisuals(g);
+}
+
+static PathResult simulate(GJBaseGameLayer* layer, PlayerObject* ghost, PlayerObject* real,
+                           SimInput input, int steps, bool record) {
+    PathResult r;
+    copyState(ghost, real);
+
+    ghost->releaseButton(PlayerButton::Jump);
+    if (input != SimInput::Release) ghost->pushButton(PlayerButton::Jump);
+
+    g_simulating = true;
+    g_ghostStopped = false;
+    g_ghostDied = false;
+
+    bool wasAirborne = !ghost->m_isOnGround;
+    float dt = g_lastRealDt;
+    if (record) {
+        r.points.reserve(steps + 1);
+        r.points.push_back(ghost->getPosition());
+    }
+
+    int i = 0;
+    for (; i < steps; i++) {
+        ghost->update(dt);
+        layer->checkCollisions(ghost, dt, false);
+        if (record) r.points.push_back(ghost->getPosition());
+
+        if (i == 0 && input == SimInput::Tap) ghost->releaseButton(PlayerButton::Jump);
+
+        if (wasAirborne && ghost->m_isOnGround && r.landingIndex < 0) r.landingIndex = i + 1;
+        if (!ghost->m_isOnGround) wasAirborne = true;
+
+        if (g_ghostStopped || ghost->m_isDead) break;
+    }
+
+    r.died = g_ghostDied || ghost->m_isDead;
+    r.stopped = g_ghostStopped && !r.died;
+    if (r.died) r.deathIndex = i + 1;
+    g_simulating = false;
+    g_ghostStopped = g_ghostDied = false;
+
+    ghost->releaseButton(PlayerButton::Jump);
+    hideGhostVisuals(ghost);
+    return r;
 }
 
 // ------------------------------------------------------------
@@ -145,9 +287,10 @@ class $modify(IBPlayerObject, PlayerObject) {
 };
 
 // ------------------------------------------------------------
-// GJBaseGameLayer hooks: input, buffer, ghost side-effect blockers
+// GJBaseGameLayer hooks: input, buffer, click shifting, blockers
 // ------------------------------------------------------------
 class $modify(IBGameLayer, GJBaseGameLayer) {
+public:
     bool bufferActive() {
         if (!setting<bool>("enabled")) return false;
         if (m_isEditor) return false;
@@ -155,13 +298,112 @@ class $modify(IBGameLayer, GJBaseGameLayer) {
         return true;
     }
 
-public:
-    // Send a P1/P2 jump press/release straight to GD (bypasses our logic).
     void sendJump(bool down, bool isPlayer1) {
         g_injecting = true;
         GJBaseGameLayer::handleButton(down, JUMP, isPlayer1);
         g_injecting = false;
-        if (isPlayer1) g_smart.gdPressed = down;
+        if (isPlayer1) {
+            g_smart.gdPressed = down;
+            if (down) g_smart.pressTick = g_tick;
+        }
+    }
+
+    bool smartActive() {
+        bool shift = setting<bool>("smart-click");
+        bool autoc = setting<bool>("auto-click");
+        if (!shift && !autoc) return false;
+        if (m_isEditor) return false;
+        if (setting<bool>("smart-click-practice-only") && !m_isPracticeMode) return false;
+        if (m_gameState.m_isDualMode) return false;
+        auto pl = typeinfo_cast<PlayLayer*>(static_cast<GJBaseGameLayer*>(this));
+        if (!pl || pl->m_hasCompletedLevel) return false;
+        auto p = m_player1;
+        if (!p || p->m_isDead) return false;
+        if (isTouchingOrb(p) || p->m_isDashing) return false; // orbs and dashes: you're in control
+        return true;
+    }
+
+    // Give GD the user's real input when smart features step aside.
+    void handBack() {
+        auto& s = g_smart;
+        if (s.tapRequest) {
+            if (!s.gdPressed) sendJump(true, true);
+            s.tapRequest = false;
+            if (!g_p1.held) s.tapRelease = true;
+        } else if (s.gdPressed != (g_p1.held || false)) {
+            sendJump(g_p1.held, true);
+        }
+        s.autoHeld = false;
+    }
+
+    // Runs at the start of every physics tick, and right when you click.
+    void smartTick() {
+        auto& s = g_smart;
+        bool active = smartActive();
+        if (!active) {
+            if (s.wasActive) handBack();
+            s.wasActive = false;
+            return;
+        }
+        s.wasActive = true;
+
+        auto real = m_player1;
+        bool pressed = s.gdPressed;
+        bool hold = isHoldMode(real);
+
+        if (s.tapRequest && !g_p1.held &&
+            nowMs() - s.requestTime > (double)setting<int64_t>("smart-max-delay")) {
+            s.tapRequest = false; // never became safe in time: drop it
+        }
+
+        bool shiftOn = setting<bool>("smart-click");
+        bool autoOn = setting<bool>("auto-click");
+        bool desired = g_p1.held || s.tapRequest || s.autoHeld;
+        bool wantSwitch = desired != pressed;
+
+        if (wantSwitch && !shiftOn) {
+            // shifting off: pass the input straight through
+            sendJump(desired, true);
+            if (desired) s.tapRequest = false;
+            return;
+        }
+        if (!wantSwitch && !autoOn && !s.autoHeld) return;
+        if (pressed && g_tick <= s.pressTick) return; // a press lasts at least one tick
+        if (!ensureGhosts(this)) {
+            if (wantSwitch) { sendJump(desired, true); if (desired) s.tapRequest = false; }
+            return;
+        }
+
+        int horizon = msToTicks(setting<int64_t>("smart-click-lookahead"));
+        SimInput stayIn = pressed ? SimInput::Hold : SimInput::Release;
+        SimInput switchIn = pressed ? SimInput::Release : (hold ? SimInput::Hold : SimInput::Tap);
+        auto stay = simulate(this, g_ghostA, real, stayIn, horizon, false);
+        auto sw = simulate(this, g_ghostB, real, switchIn, horizon, false);
+
+        if (wantSwitch) {
+            // do what you asked, unless that dies and not doing it is safe (then wait)
+            if (!sw.died || stay.died) {
+                sendJump(!pressed, true);
+                if (!pressed) s.tapRequest = false;
+                else s.autoHeld = false;
+            }
+            return;
+        }
+
+        // input already matches what you want
+        if (s.autoHeld && pressed && !g_p1.held && !sw.died) {
+            sendJump(false, true); // auto-hold no longer needed
+            s.autoHeld = false;
+            return;
+        }
+        if (autoOn && stay.died && !sw.died) {
+            sendJump(!pressed, true);
+            if (!pressed) {
+                if (hold && !g_p1.held) s.autoHeld = true;
+            } else {
+                s.autoHeld = false;
+            }
+        }
     }
 
     void handleButton(bool down, int button, bool isPlayer1) {
@@ -173,31 +415,26 @@ public:
         auto& st = isPlayer1 ? g_p1 : g_p2;
         st.held = down;
 
-        // ---- Smart Click: filter player 1's real input ----
-        if (isPlayer1 && g_smartActiveNow) {
-            auto& s = g_smart;
+        if (isPlayer1 && smartActive()) {
             if (down) {
-                if (s.autoHeld) {          // we were holding: the user takes over
-                    s.autoHeld = false;
-                    return;                // GD is already pressed
-                }
-                if (!s.gdPressed && s.valid && s.pressDies && !s.releaseDies) {
-                    s.suppressed = true;   // this click would kill you: ignore it
-                    s.blockedClicks++;
-                    return;
-                }
-            } else {
-                if (s.suppressed) {        // GD never saw the press
-                    s.suppressed = false;
-                    return;
-                }
+                g_smart.tapRequest = true;
+                g_smart.requestTime = nowMs();
             }
+            bufferBookkeeping(down, isPlayer1);
+            smartTick(); // decide right away: no added delay when it's safe
+            return;
         }
 
         GJBaseGameLayer::handleButton(down, button, isPlayer1);
-        if (isPlayer1) g_smart.gdPressed = down;
+        if (isPlayer1) {
+            g_smart.gdPressed = down;
+            if (down) g_smart.pressTick = g_tick;
+        }
+        bufferBookkeeping(down, isPlayer1);
+    }
 
-        // ---- Input buffer bookkeeping ----
+    void bufferBookkeeping(bool down, bool isPlayer1) {
+        auto& st = isPlayer1 ? g_p1 : g_p2;
         if (!down || !bufferActive()) return;
         auto player = isPlayer1 ? m_player1 : m_player2;
         if (!player || player->m_isDead) return;
@@ -231,6 +468,12 @@ public:
         if (player->m_isOnGround) {
             st.pending = false;
             if (st.held) return; // still holding: GD jumps on landing by itself
+            if (isPlayer1 && smartActive()) {
+                // let click shifting check the buffered jump too
+                g_smart.tapRequest = true;
+                g_smart.requestTime = nowMs();
+                return;
+            }
             sendJump(true, isPlayer1);
             st.releaseNextTick = true;
         }
@@ -239,12 +482,14 @@ public:
     void processCommands(float dt, bool isHalfTick, bool isLastTick) {
         if (!g_simulating) {
             ++g_tick;
-            if (g_smart.tapRelease) {
-                g_smart.tapRelease = false;
-                if (!g_p1.held && !g_smart.autoHeld) sendJump(false, true);
+            auto& s = g_smart;
+            if (s.tapRelease) {
+                if (!s.gdPressed || g_p1.held) s.tapRelease = false;
+                else if (g_tick > s.pressTick) { s.tapRelease = false; sendJump(false, true); }
             }
             tickBuffer(true);
             if (m_gameState.m_isDualMode) tickBuffer(false);
+            smartTick();
         }
         GJBaseGameLayer::processCommands(dt, isHalfTick, isLastTick);
     }
@@ -298,22 +543,10 @@ public:
 };
 
 // ------------------------------------------------------------
-// PlayLayer: ghosts, prediction, smart click, drawing
+// PlayLayer: drawing, label, cleanup
 // ------------------------------------------------------------
-enum class SimInput { Release, Hold, Tap };
-
-struct PathResult {
-    std::vector<CCPoint> points;
-    bool died = false;
-    bool stopped = false;
-    int deathIndex = -1;
-    int landingIndex = -1;
-};
-
 class $modify(IBPlayLayer, PlayLayer) {
     struct Fields {
-        Ref<PlayerObject> ghostA;
-        Ref<PlayerObject> ghostB;
         Ref<CCDrawNode> draw;
         Ref<CCLabelBMFont> label;
         uint64_t lastTick = 0;
@@ -330,124 +563,11 @@ class $modify(IBPlayLayer, PlayLayer) {
     }
 
     void onQuit() {
-        g_ghostA = g_ghostB = nullptr;
-        g_smartActiveNow = false;
+        releaseGhosts();
         resetInputState();
         PlayLayer::onQuit();
     }
 
-    // ---------- ghosts ----------
-    PlayerObject* makeGhost() {
-        auto layer = m_objectLayer;
-        auto before = layer->getChildrenCount();
-        auto ghost = PlayerObject::create(1, 1, this, layer, false);
-        if (!ghost) return nullptr;
-        ghost->m_playEffects = false;
-        layer->addChild(ghost);
-        ghost->setVisible(false);
-        auto children = layer->getChildren();
-        for (auto i = before; children && i < children->count(); i++) {
-            if (auto node = typeinfo_cast<CCNode*>(children->objectAtIndex(i))) node->setVisible(false);
-        }
-        if (ghost->m_regularTrail) ghost->m_regularTrail->setVisible(false);
-        if (ghost->m_waveTrail) ghost->m_waveTrail->setVisible(false);
-        return ghost;
-    }
-
-    void ensureGhosts() {
-        auto f = m_fields.self();
-        if (!f->ghostA) f->ghostA = makeGhost();
-        if (!f->ghostB) f->ghostB = makeGhost();
-        if (!f->draw) {
-            f->draw = CCDrawNode::create();
-            f->draw->setZOrder(9999);
-            m_objectLayer->addChild(f->draw);
-        }
-        g_ghostA = f->ghostA;
-        g_ghostB = f->ghostB;
-    }
-
-    static void syncMode(PlayerObject* g, PlayerObject* p) {
-        if (g->m_isShip && !p->m_isShip) g->toggleFlyMode(false, true);
-        if (g->m_isBall && !p->m_isBall) g->toggleRollMode(false, true);
-        if (g->m_isBird && !p->m_isBird) g->toggleBirdMode(false, true);
-        if (g->m_isDart && !p->m_isDart) g->toggleDartMode(false, true);
-        if (g->m_isRobot && !p->m_isRobot) g->toggleRobotMode(false, true);
-        if (g->m_isSpider && !p->m_isSpider) g->toggleSpiderMode(false, true);
-        if (g->m_isSwing && !p->m_isSwing) g->toggleSwingMode(false, true);
-
-        if (p->m_isShip && !g->m_isShip) g->toggleFlyMode(true, true);
-        if (p->m_isBall && !g->m_isBall) g->toggleRollMode(true, true);
-        if (p->m_isBird && !g->m_isBird) g->toggleBirdMode(true, true);
-        if (p->m_isDart && !g->m_isDart) g->toggleDartMode(true, true);
-        if (p->m_isRobot && !g->m_isRobot) g->toggleRobotMode(true, true);
-        if (p->m_isSpider && !g->m_isSpider) g->toggleSpiderMode(true, true);
-        if (p->m_isSwing && !g->m_isSwing) g->toggleSwingMode(true, true);
-    }
-
-    static void copyState(PlayerObject* g, PlayerObject* p) {
-        syncMode(g, p);
-        bool mini = p->m_vehicleSize != 1.0f;
-        if ((g->m_vehicleSize != 1.0f) != mini) g->togglePlayerScale(mini, true);
-        g->m_isUpsideDown = p->m_isUpsideDown; // set directly: flipGravity can call back into the level
-
-        g->copyAttributes(p);
-        g->setPosition(p->getPosition());
-        g->m_position = p->m_position;
-        g->m_yVelocity = p->m_yVelocity;
-        g->m_isOnGround = p->m_isOnGround;
-        g->m_playerSpeed = p->m_playerSpeed;
-        g->m_gravityMod = p->m_gravityMod;
-        g->m_isPlatformer = p->m_isPlatformer;
-        g->m_isGoingLeft = p->m_isGoingLeft;
-        g->m_isSideways = p->m_isSideways;
-        g->m_holdingButtons = p->m_holdingButtons;
-        g->m_isDead = false;
-        g->setVisible(false);
-    }
-
-    // Run a ghost forward `steps` physics ticks with the given input.
-    PathResult simulate(PlayerObject* ghost, PlayerObject* real, SimInput input, int steps) {
-        PathResult r;
-        copyState(ghost, real);
-
-        ghost->releaseButton(PlayerButton::Jump);
-        if (input != SimInput::Release) ghost->pushButton(PlayerButton::Jump);
-
-        g_simulating = true;
-        g_ghostStopped = false;
-        g_ghostDied = false;
-
-        bool wasAirborne = !ghost->m_isOnGround;
-        float dt = g_lastRealDt;
-        r.points.reserve(steps + 1);
-        r.points.push_back(ghost->getPosition());
-
-        for (int i = 0; i < steps; i++) {
-            ghost->update(dt);
-            this->checkCollisions(ghost, dt, false);
-            r.points.push_back(ghost->getPosition());
-
-            if (i == 0 && input == SimInput::Tap) ghost->releaseButton(PlayerButton::Jump);
-
-            if (wasAirborne && ghost->m_isOnGround && r.landingIndex < 0) r.landingIndex = (int)r.points.size() - 1;
-            if (!ghost->m_isOnGround) wasAirborne = true;
-
-            if (g_ghostStopped || ghost->m_isDead) break;
-        }
-
-        r.died = g_ghostDied || ghost->m_isDead;
-        r.stopped = g_ghostStopped && !r.died;
-        if (r.died) r.deathIndex = (int)r.points.size() - 1;
-        g_simulating = false;
-        g_ghostStopped = g_ghostDied = false;
-
-        ghost->releaseButton(PlayerButton::Jump);
-        ghost->setVisible(false);
-        return r;
-    }
-
-    // ---------- drawing ----------
     static void drawPath(CCDrawNode* d, PathResult const& r, ccColor4F color, int from, int to) {
         from = std::max(from, 0);
         to = std::min(to, (int)r.points.size() - 1);
@@ -478,20 +598,11 @@ class $modify(IBPlayLayer, PlayLayer) {
         f->lastTime = t;
     }
 
-    int msToTicks(int64_t ms) {
-        return std::clamp((int)(ms / g_msPerTick), 1, 1000);
-    }
-
-    bool smartWanted() {
-        if (!setting<bool>("smart-click")) return false;
-        if (setting<bool>("smart-click-practice-only") && !m_isPracticeMode) return false;
-        if (m_gameState.m_isDualMode) return false; // player 1 only
-        return true;
-    }
-
-    void updateLabel(bool smartOn) {
+    void updateLabel() {
         auto f = m_fields.self();
-        bool show = smartOn && setting<bool>("smart-click-indicator");
+        bool on = setting<bool>("smart-click") || setting<bool>("auto-click");
+        if (setting<bool>("smart-click-practice-only") && !m_isPracticeMode) on = false;
+        bool show = on && setting<bool>("smart-click-indicator");
         if (!f->label) {
             if (!show) return;
             f->label = CCLabelBMFont::create("Smart Click", "bigFont.fnt");
@@ -505,119 +616,49 @@ class $modify(IBPlayLayer, PlayLayer) {
         f->label->setVisible(show);
     }
 
-    // ---------- smart click decision ----------
-    void applySmartClick(PlayerObject* real, PathResult const& a, PathResult const& b, int horizon) {
-        auto layer = static_cast<IBGameLayer*>(static_cast<GJBaseGameLayer*>(this));
-        auto& s = g_smart;
-
-        bool aDies = a.died && a.deathIndex <= horizon;
-        bool bDies = b.died && b.deathIndex <= horizon;
-        bool hold = isHoldMode(real);
-
-        // remembered for filtering the user's next click
-        if (!s.gdPressed) {
-            s.pressDies = aDies;
-            s.releaseDies = bDies;
-            s.valid = true;
-        } else {
-            s.valid = false;
-        }
-
-        if (s.gdPressed) {
-            if (aDies && !bDies) {
-                // holding / jumping kills you, letting go is safe: let go
-                layer->sendJump(false, true);
-                if (g_p1.held) { s.suppressed = true; s.blockedClicks++; }
-                s.autoHeld = false;
-            } else if (s.autoHeld && !g_p1.held && !bDies) {
-                // our auto-hold isn't needed anymore
-                layer->sendJump(false, true);
-                s.autoHeld = false;
-            }
-        } else {
-            if (bDies && !aDies) {
-                // not clicking kills you, clicking is safe: click
-                layer->sendJump(true, true);
-                s.autoClicks++;
-                if (g_p1.held) {
-                    s.suppressed = false;        // the user's own hold is now live
-                } else if (hold) {
-                    s.autoHeld = true;
-                } else {
-                    s.tapRelease = true;
-                }
-            } else if (s.suppressed && g_p1.held && !aDies) {
-                // the user is still holding and it's safe now: let it through
-                layer->sendJump(true, true);
-                s.suppressed = false;
-            }
-        }
-    }
-
-    void releaseSmartControl() {
-        auto layer = static_cast<IBGameLayer*>(static_cast<GJBaseGameLayer*>(this));
-        auto& s = g_smart;
-        if (s.autoHeld && !g_p1.held) layer->sendJump(false, true);
-        if (s.suppressed && g_p1.held) layer->sendJump(true, true); // give the user's hold back
-        s.autoHeld = s.suppressed = false;
-        s.valid = false;
-    }
-
-    // ---------- per frame ----------
-    void updatePrediction() {
+    void updateTrajectory() {
         auto f = m_fields.self();
         if (f->draw) f->draw->clear();
 
-        bool showTraj = setting<bool>("show-trajectory") &&
-            !(setting<bool>("trajectory-practice-only") && !m_isPracticeMode);
-        bool smart = smartWanted();
-        updateLabel(smart);
-
+        if (!setting<bool>("show-trajectory")) return;
+        if (setting<bool>("trajectory-practice-only") && !m_isPracticeMode) return;
         auto real = m_player1;
-        bool alive = real && !real->m_isDead && !m_hasCompletedLevel;
-        bool smartUsable = smart && alive && !isTouchingOrb(real);
+        if (!real || real->m_isDead || m_hasCompletedLevel || real->m_isDashing) return;
+        if (!ensureGhosts(this)) return;
 
-        if (!smartUsable && g_smartActiveNow) releaseSmartControl();
-        g_smartActiveNow = smartUsable;
+        if (!f->draw) {
+            f->draw = CCDrawNode::create();
+            f->draw->setZOrder(9999);
+            m_objectLayer->addChild(f->draw);
+        }
 
-        if (!alive || (!showTraj && !smart)) return;
+        int steps = msToTicks(setting<int64_t>("trajectory-length"));
+        SimInput aIn = g_smart.gdPressed ? SimInput::Hold
+                     : (isHoldMode(real) ? SimInput::Hold : SimInput::Tap);
+        auto b = simulate(this, g_ghostB, real, SimInput::Release, steps, true);
+        auto a = simulate(this, g_ghostA, real, aIn, steps, true);
 
-        ensureGhosts();
-        if (!f->ghostA || !f->ghostB || !f->draw) return;
-
-        int drawSteps = showTraj ? msToTicks(setting<int64_t>("trajectory-length")) : 0;
-        int horizon = msToTicks(setting<int64_t>("smart-click-lookahead"));
-        int steps = std::max(drawSteps, smart ? horizon : 0);
-
-        // A = click (or keep holding if GD is pressed), B = no click / let go
-        SimInput aInput = g_smart.gdPressed ? SimInput::Hold
-                        : (isHoldMode(real) ? SimInput::Hold : SimInput::Tap);
-        auto b = simulate(f->ghostB, real, SimInput::Release, steps);
-        auto a = simulate(f->ghostA, real, aInput, steps);
-
-        if (smartUsable) applySmartClick(real, a, b, horizon);
-
-        if (!showTraj) return;
         auto d = f->draw.data();
-        drawPath(d, b, ccc4f(1.f, 0.3f, 0.3f, 0.85f), 0, drawSteps);
-        drawPath(d, a, ccc4f(0.3f, 1.f, 0.4f, 0.9f), 0, drawSteps);
+        drawPath(d, b, ccc4f(1.f, 0.3f, 0.3f, 0.85f), 0, (int)b.points.size());
+        drawPath(d, a, ccc4f(0.3f, 1.f, 0.4f, 0.9f), 0, (int)a.points.size());
 
         if (setting<bool>("show-buffer-zone") && setting<bool>("enabled") &&
-            b.landingIndex > 0 && b.landingIndex <= drawSteps &&
+            b.landingIndex > 0 && b.landingIndex < (int)b.points.size() &&
             isGroundJumpMode(real) && !real->m_isOnGround) {
             int start = b.landingIndex - msToTicks(setting<int64_t>("buffer-window"));
             auto yellow = ccc4f(1.f, 0.9f, 0.2f, 1.f);
             drawPath(d, b, yellow, start, b.landingIndex);
             d->drawDot(b.points[b.landingIndex], 3.f, yellow);
         }
-        if (b.died ? b.deathIndex <= drawSteps : true) drawEnd(d, b);
-        if (a.died ? a.deathIndex <= drawSteps : true) drawEnd(d, a);
+        drawEnd(d, b);
+        drawEnd(d, a);
     }
 
     void postUpdate(float dt) {
         PlayLayer::postUpdate(dt);
         measureTickRate();
-        updatePrediction();
+        updateLabel();
+        updateTrajectory();
     }
 
     void resetLevel() {
