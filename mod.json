@@ -1,0 +1,119 @@
+{
+	"geode": "5.10.1",
+	"gd": {
+		"win": "2.2081"
+	},
+	"id": "aljishi.input-buffer",
+	"name": "Input Buffer",
+	"version": "v3.0.0",
+	"developer": "aljishi",
+	"description": "Buffer early jumps, preview your trajectory, and Smart Click that avoids deadly clicks.",
+	"tags": [
+		"gameplay",
+		"utility"
+	],
+	"settings": {
+		"buffer-title": {
+			"type": "title",
+			"name": "Input Buffer"
+		},
+		"enabled": {
+			"type": "bool",
+			"default": true,
+			"name": "Enable Input Buffer",
+			"description": "Tap jump slightly before landing and the jump comes out on the landing tick."
+		},
+		"buffer-window": {
+			"type": "int",
+			"default": 150,
+			"min": 10,
+			"max": 500,
+			"name": "Buffer Window (ms)",
+			"description": "How early you can tap before landing and still get the jump. At 240 physics ticks per second, 150 ms is about 36 ticks.",
+			"control": {
+				"slider": true,
+				"slider-step": 10,
+				"arrows": true,
+				"arrow-step": 10
+			}
+		},
+		"platformer-only": {
+			"type": "bool",
+			"default": false,
+			"name": "Platformer Levels Only",
+			"description": "Only buffer inputs in platformer levels."
+		},
+		"trajectory-title": {
+			"type": "title",
+			"name": "Trajectory"
+		},
+		"show-trajectory": {
+			"type": "bool",
+			"default": true,
+			"name": "Show Trajectory",
+			"description": "Draws two paths ahead of your icon. Green: where you go if you click now. Red: where you go if you don't click."
+		},
+		"trajectory-length": {
+			"type": "int",
+			"default": 1000,
+			"min": 200,
+			"max": 3000,
+			"name": "Trajectory Length (ms)",
+			"description": "How far ahead to predict. Longer is more expensive.",
+			"control": {
+				"slider": true,
+				"slider-step": 100,
+				"arrows": true,
+				"arrow-step": 100
+			}
+		},
+		"show-buffer-zone": {
+			"type": "bool",
+			"default": true,
+			"name": "Show Buffer Zone",
+			"description": "Highlights in yellow the part of the no-click path where an early tap will be caught by the buffer."
+		},
+		"trajectory-practice-only": {
+			"type": "bool",
+			"default": false,
+			"name": "Trajectory in Practice Only",
+			"description": "Only show the trajectory in practice mode."
+		},
+		"smart-title": {
+			"type": "title",
+			"name": "Smart Click"
+		},
+		"smart-click": {
+			"type": "bool",
+			"default": true,
+			"name": "Enable Smart Click",
+			"description": "Uses the trajectory: ignores your click if clicking dies and not clicking is safe, and clicks for you if not clicking dies and clicking is safe. If both die, or you're on an orb, you're in control. This is an auto-play aid: don't use it for verifying or rated runs."
+		},
+		"smart-click-lookahead": {
+			"type": "int",
+			"default": 350,
+			"min": 50,
+			"max": 1500,
+			"name": "Smart Click Lookahead (ms)",
+			"description": "How far ahead a death has to be for Smart Click to react. Lower = reacts later and closer to the danger; higher = reacts earlier.",
+			"control": {
+				"slider": true,
+				"slider-step": 25,
+				"arrows": true,
+				"arrow-step": 25
+			}
+		},
+		"smart-click-practice-only": {
+			"type": "bool",
+			"default": false,
+			"name": "Smart Click in Practice Only",
+			"description": "Only use Smart Click in practice mode."
+		},
+		"smart-click-indicator": {
+			"type": "bool",
+			"default": true,
+			"name": "Show 'Smart Click' Label",
+			"description": "Shows a small label in the corner while Smart Click is on."
+		}
+	}
+}
