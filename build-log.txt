@@ -1,0 +1,41 @@
+[0/2] Re-checking globbed directories...
+[1/12] Building CXX object bindings/CMakeFiles/GeodeBindings.dir/Unity/unity_13_cxx.cxx.obj
+FAILED: [code=1] bindings/CMakeFiles/GeodeBindings.dir/Unity/unity_13_cxx.cxx.obj 
+C:\Users\runneradmin\.cargo\bin\sccache "C:\Program Files\LLVM\bin\clang++.exe" -DARC_FEATURE_TIME=1 -DGEODE_COMP_GD_VERSION=22081 -DNOMINMAX -D_HAS_ITERATOR_DEBUGGING=0 -ID:/a/inputbuffer/inputbuffer/geode-sdk-clone/loader/include -ID:/a/inputbuffer/inputbuffer/geode-sdk-clone/loader/include/Geode/cocos/include -ID:/a/inputbuffer/inputbuffer/geode-sdk-clone/loader/include/Geode/cocos/extensions -ID:/a/inputbuffer/inputbuffer/geode-sdk-clone/loader/include/Geode/fmod -isystem D:/a/inputbuffer/inputbuffer/build/bindings/bindings -isystem D:/a/inputbuffer/inputbuffer/build/_deps/bindings-src/bindings/include -isystem D:/a/inputbuffer/inputbuffer/cpm-cache/fmt/71b2/include -isystem D:/a/inputbuffer/inputbuffer/cpm-cache/tuliphook/e901/include -isystem D:/a/inputbuffer/inputbuffer/cpm-cache/result/1b9c/include -isystem D:/a/inputbuffer/inputbuffer/cpm-cache/json/f349/include -isystem D:/a/inputbuffer/inputbuffer/cpm-cache/nontype_functional/aaa0/include -isystem D:/a/inputbuffer/inputbuffer/cpm-cache/asp2/1cba/include -isystem D:/a/inputbuffer/inputbuffer/cpm-cache/arc/3609/include -O3 -DNDEBUG -std=gnu++23 -D_DLL -D_MT -Xclang --dependent-lib=msvcrt -flto=thin --target=x86_64-pc-windows-msvc -MD -MT bindings/CMakeFiles/GeodeBindings.dir/Unity/unity_13_cxx.cxx.obj -MF bindings\CMakeFiles\GeodeBindings.dir\Unity\unity_13_cxx.cxx.obj.d -o bindings/CMakeFiles/GeodeBindings.dir/Unity/unity_13_cxx.cxx.obj -c D:/a/inputbuffer/inputbuffer/build/bindings/CMakeFiles/GeodeBindings.dir/Unity/unity_13_cxx.cxx
+In file included from D:/a/inputbuffer/inputbuffer/build/bindings/CMakeFiles/GeodeBindings.dir/Unity/unity_13_cxx.cxx:49:
+In file included from D:/a/inputbuffer/inputbuffer/build/bindings/bindings/Geode/source/SequenceTriggerGameObject.cpp:6:
+D:/a/inputbuffer/inputbuffer/build/bindings/bindings\Geode/binding/SequenceTriggerGameObject.hpp:121:26: error: field has incomplete type 'SequenceTriggerState'
+  121 |     SequenceTriggerState m_sequenceState;
+      |                          ^
+D:/a/inputbuffer/inputbuffer/build/bindings/bindings\Geode/GeneratedPredeclare.hpp:312:7: note: forward declaration of 'SequenceTriggerState'
+  312 | class SequenceTriggerState;
+      |       ^
+1 error generated.
+[2/12] Building CXX object bindings/CMakeFiles/GeodeBindings.dir/Unity/unity_11_cxx.cxx.obj
+FAILED: [code=1] bindings/CMakeFiles/GeodeBindings.dir/Unity/unity_11_cxx.cxx.obj 
+C:\Users\runneradmin\.cargo\bin\sccache "C:\Program Files\LLVM\bin\clang++.exe" -DARC_FEATURE_TIME=1 -DGEODE_COMP_GD_VERSION=22081 -DNOMINMAX -D_HAS_ITERATOR_DEBUGGING=0 -ID:/a/inputbuffer/inputbuffer/geode-sdk-clone/loader/include -ID:/a/inputbuffer/inputbuffer/geode-sdk-clone/loader/include/Geode/cocos/include -ID:/a/inputbuffer/inputbuffer/geode-sdk-clone/loader/include/Geode/cocos/extensions -ID:/a/inputbuffer/inputbuffer/geode-sdk-clone/loader/include/Geode/fmod -isystem D:/a/inputbuffer/inputbuffer/build/bindings/bindings -isystem D:/a/inputbuffer/inputbuffer/build/_deps/bindings-src/bindings/include -isystem D:/a/inputbuffer/inputbuffer/cpm-cache/fmt/71b2/include -isystem D:/a/inputbuffer/inputbuffer/cpm-cache/tuliphook/e901/include -isystem D:/a/inputbuffer/inputbuffer/cpm-cache/result/1b9c/include -isystem D:/a/inputbuffer/inputbuffer/cpm-cache/json/f349/include -isystem D:/a/inputbuffer/inputbuffer/cpm-cache/nontype_functional/aaa0/include -isystem D:/a/inputbuffer/inputbuffer/cpm-cache/asp2/1cba/include -isystem D:/a/inputbuffer/inputbuffer/cpm-cache/arc/3609/include -O3 -DNDEBUG -std=gnu++23 -D_DLL -D_MT -Xclang --dependent-lib=msvcrt -flto=thin --target=x86_64-pc-windows-msvc -MD -MT bindings/CMakeFiles/GeodeBindings.dir/Unity/unity_11_cxx.cxx.obj -MF bindings\CMakeFiles\GeodeBindings.dir\Unity\unity_11_cxx.cxx.obj.d -o bindings/CMakeFiles/GeodeBindings.dir/Unity/unity_11_cxx.cxx.obj -c D:/a/inputbuffer/inputbuffer/build/bindings/CMakeFiles/GeodeBindings.dir/Unity/unity_11_cxx.cxx
+In file included from D:/a/inputbuffer/inputbuffer/build/bindings/CMakeFiles/GeodeBindings.dir/Unity/unity_11_cxx.cxx:4:
+In file included from D:/a/inputbuffer/inputbuffer/build/bindings/bindings/Geode/source/GJBigSpriteNode.cpp:5:
+In file included from D:/a/inputbuffer/inputbuffer/geode-sdk-clone/loader/include\Geode/loader/Tulip.hpp:4:
+In file included from D:/a/inputbuffer/inputbuffer/cpm-cache/tuliphook/e901/include\tulip/TulipHook.hpp:3:
+In file included from D:/a/inputbuffer/inputbuffer/cpm-cache/tuliphook/e901/include\tulip\AbstractFunction.hpp:3:
+D:/a/inputbuffer/inputbuffer/cpm-cache/tuliphook/e901/include\tulip\AbstractType.hpp:32:63: error: invalid application of 'sizeof' to an incomplete type 'EffectManagerState'
+   32 |                                 type.m_size = std::is_reference_v<Type> ? sizeof(void*) : sizeof(Type);
+      |                                                                                           ^~~~~~~~~~~~
+D:/a/inputbuffer/inputbuffer/cpm-cache/tuliphook/e901/include\tulip\AbstractFunction.hpp:42:47: note: in instantiation of function template specialization 'tulip::hook::AbstractType::from<EffectManagerState &>' requested here
+   42 |                         (func.m_parameters.push_back(AbstractType::from<Parameters>()), ...);
+      |                                                                    ^
+D:/a/inputbuffer/inputbuffer/build/bindings/bindings/Geode/source/GJBigSpriteNode.cpp:18:48: note: in instantiation of function template specialization 'tulip::hook::AbstractFunction::from<void, GJEffectManager *, EffectManagerState &>' requested here
+   18 |                 .m_abstract = tulip::hook::AbstractFunction::from(F(nullptr)),
+      |                                                              ^
+D:/a/inputbuffer/inputbuffer/build/bindings/bindings\Geode/GeneratedPredeclare.hpp:436:7: note: forward declaration of 'EffectManagerState'
+  436 | class EffectManagerState;
+      |       ^
+1 error generated.
+[3/12] Building CXX object bindings/CMakeFiles/GeodeBindings.dir/Unity/unity_3_cxx.cxx.obj
+[4/12] Building CXX object bindings/CMakeFiles/GeodeBindings.dir/Unity/unity_2_cxx.cxx.obj
+[5/12] Building CXX object bindings/CMakeFiles/GeodeBindings.dir/Unity/unity_1_cxx.cxx.obj
+[6/12] Building CXX object bindings/CMakeFiles/GeodeBindings.dir/Unity/unity_0_cxx.cxx.obj
+[7/12] Building CXX object CMakeFiles/InputBuffer.dir/src/main.cpp.obj
+[8/12] Building CXX object CMakeFiles/InputBuffer.dir/geode-sdk-clone/entry.cpp.obj
+ninja: build stopped: cannot make progress due to previous errors.
