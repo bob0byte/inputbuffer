@@ -88,6 +88,9 @@ struct SmartState {
     bool tapRelease = false;      // release a handed-back tap next tick
     uint64_t pressTick = 0;       // tick the last press reached GD
     bool wasActive = false;
+    bool planned = false;         // input scheduled for a safer tick
+    uint64_t planTick = 0;
+    uint64_t nextPlanTick = 0;    // throttle re-planning while holding back
 };
 static SmartState g_smart;
 static bool g_injecting = false;
@@ -240,6 +243,39 @@ static PathResult simulate(GJBaseGameLayer* layer, PlayerObject* ghost, PlayerOb
     return r;
 }
 
+// How many ticks the ghost lives if it uses `before` and switches to `after`
+// at tick `at`. Returns steps + 1 if it survives the whole run.
+static int survival(GJBaseGameLayer* layer, PlayerObject* ghost, PlayerObject* real,
+                    SimInput before, SimInput after, int at, int steps) {
+    copyState(ghost, real);
+    auto apply = [&](SimInput in) {
+        ghost->releaseButton(PlayerButton::Jump);
+        if (in != SimInput::Release) ghost->pushButton(PlayerButton::Jump);
+    };
+    SimInput cur = at == 0 ? after : before;
+    int curStart = 0;
+    apply(cur);
+
+    g_simulating = true;
+    g_ghostStopped = g_ghostDied = false;
+    float dt = g_lastRealDt;
+    bool dead = false;
+    int i = 0;
+    for (; i < steps; i++) {
+        if (i == at && at > 0) { cur = after; curStart = i; apply(cur); }
+        ghost->update(dt);
+        layer->checkCollisions(ghost, dt, false);
+        if (cur == SimInput::Tap && i == curStart) ghost->releaseButton(PlayerButton::Jump);
+        if (g_ghostDied || ghost->m_isDead) { dead = true; break; }
+        if (g_ghostStopped) break; // orb/pad/portal ahead: can't see past it, treat as safe
+    }
+    g_simulating = false;
+    g_ghostStopped = g_ghostDied = false;
+    ghost->releaseButton(PlayerButton::Jump);
+    hideGhostVisuals(ghost);
+    return dead ? i + 1 : steps + 1;
+}
+
 // ------------------------------------------------------------
 // PlayerObject hooks: record real dt, mute ghost effects/stats
 // ------------------------------------------------------------
@@ -337,6 +373,41 @@ public:
         s.autoHeld = false;
     }
 
+    // Scan what's in front of you and pick the tick to apply your input.
+    //  0  = now, >0 = that many ticks later, -1 = don't (not doing it is safe and it never is)
+    int planSwitch(PlayerObject* real, SimInput stayIn, SimInput switchIn) {
+        int horizon = msToTicks(setting<int64_t>("smart-click-lookahead"));
+        int maxK = msToTicks(setting<int64_t>("smart-max-delay"));
+        int bigGap = msToTicks(setting<int64_t>("safe-gap"));
+
+        int firstSafe = -1, runLen = 0, bestK = 0, bestLife = -1;
+        for (int k = 0; k <= maxK; k++) {
+            int steps = k + horizon;
+            int life = survival(this, g_ghostB, real, stayIn, switchIn, k, steps);
+            if (life > steps) {                       // safe if applied at tick k
+                if (firstSafe < 0) firstSafe = k;
+                runLen++;
+                if (runLen >= bigGap) break;          // big safe area found
+            } else {
+                if (firstSafe >= 0) break;            // end of the safe window
+                if (life > bestLife) { bestLife = life; bestK = k; }
+            }
+        }
+
+        if (firstSafe >= 0) {
+            if (runLen >= bigGap) {
+                // big safe area: right now if possible, else just inside it
+                return firstSafe == 0 ? 0 : firstSafe + 1;
+            }
+            return firstSafe + (runLen - 1) / 2;     // small window: its middle is safest
+        }
+
+        // nothing safe in range
+        int stayLife = survival(this, g_ghostA, real, stayIn, stayIn, 0, maxK + horizon);
+        if (stayLife > maxK + horizon) return -1;    // not doing it is safe: hold back
+        return bestK;                                // everything dies: last as long as possible
+    }
+
     // Runs at the start of every physics tick, and right when you click.
     void smartTick() {
         auto& s = g_smart;
@@ -352,7 +423,7 @@ public:
         bool pressed = s.gdPressed;
         bool hold = isHoldMode(real);
 
-        if (s.tapRequest && !g_p1.held &&
+        if (s.tapRequest && !g_p1.held && !s.planned &&
             nowMs() - s.requestTime > (double)setting<int64_t>("smart-max-delay")) {
             s.tapRequest = false; // never became safe in time: drop it
         }
@@ -368,6 +439,7 @@ public:
             if (desired) s.tapRequest = false;
             return;
         }
+        if (!wantSwitch) s.planned = false;
         if (!wantSwitch && !autoOn && !s.autoHeld) return;
         if (pressed && g_tick <= s.pressTick) return; // a press lasts at least one tick
         if (!ensureGhosts(this)) {
@@ -375,21 +447,39 @@ public:
             return;
         }
 
-        int horizon = msToTicks(setting<int64_t>("smart-click-lookahead"));
         SimInput stayIn = pressed ? SimInput::Hold : SimInput::Release;
         SimInput switchIn = pressed ? SimInput::Release : (hold ? SimInput::Hold : SimInput::Tap);
-        auto stay = simulate(this, g_ghostA, real, stayIn, horizon, false);
-        auto sw = simulate(this, g_ghostB, real, switchIn, horizon, false);
+        auto doSwitch = [&] {
+            sendJump(!pressed, true);
+            if (!pressed) s.tapRequest = false;
+            else s.autoHeld = false;
+            s.planned = false;
+        };
 
         if (wantSwitch) {
-            // do what you asked, unless that dies and not doing it is safe (then wait)
-            if (!sw.died || stay.died) {
-                sendJump(!pressed, true);
-                if (!pressed) s.tapRequest = false;
-                else s.autoHeld = false;
+            if (s.planned) {
+                if (g_tick >= s.planTick) doSwitch(); // the safest tick is here
+                return;
+            }
+            if (g_tick < s.nextPlanTick) return;
+
+            int k = planSwitch(real, stayIn, switchIn);
+            if (k == 0) {
+                doSwitch();
+            } else if (k > 0) {
+                s.planned = true;
+                s.planTick = g_tick + (uint64_t)k;
+            } else if (s.tapRequest && !g_p1.held) {
+                s.tapRequest = false;          // tap never safe in time: dropped
+            } else {
+                s.nextPlanTick = g_tick + 4;   // still holding: look again shortly
             }
             return;
         }
+
+        int horizon = msToTicks(setting<int64_t>("smart-click-lookahead"));
+        auto stay = simulate(this, g_ghostA, real, stayIn, horizon, false);
+        auto sw = simulate(this, g_ghostB, real, switchIn, horizon, false);
 
         // input already matches what you want
         if (s.autoHeld && pressed && !g_p1.held && !sw.died) {

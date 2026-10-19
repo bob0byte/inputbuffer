@@ -9,7 +9,13 @@ Everything in this mod only works while you're in **wave**. Other gamemodes play
 - **Blue dot**: that path reaches an orb, pad or portal (the preview stops there)
 
 ## Click Shifting
-When pressing (or letting go) would kill you and not doing it is safe, the input is held back and registers on the **first physics tick where it's safe**. A tap that never becomes safe within the Max Delay is dropped. It steps aside on orbs and dash orbs.
+Before applying a press or release, it scans what's in front of you:
+- **Big safe area**: your input goes through instantly
+- **Small safe area**: your input is moved to the middle of the window, the safest tick
+- **Deadly right now**: it waits and applies your input at the safest tick ahead
+- A tap that isn't safe anywhere within the Max Delay is dropped
+
+It steps aside on orbs and dash orbs.
 
 **Auto Click** (off by default) also holds or lets go for you when your current input would kill you.
 

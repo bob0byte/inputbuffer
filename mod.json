@@ -5,7 +5,7 @@
 	},
 	"id": "community.wave-assist",
 	"name": "Wave Assist",
-	"version": "v5.0.0",
+	"version": "v5.1.0",
 	"developer": "Community",
 	"description": "Wave-only trajectory preview and click shifting so wave inputs register on the first safe tick.",
 	"tags": [
@@ -51,7 +51,7 @@
 			"type": "bool",
 			"default": true,
 			"name": "Enable Click Shifting",
-			"description": "In wave, when pressing or letting go would kill you and not doing it is safe, the input is held back and registers on the first physics tick where it's safe. Turns itself off on orbs and while dashing."
+			"description": "In wave, scans what's in front of you before applying a press or release. Big safe area: instant. Small safe area: moved to the safest tick in the middle. Deadly right now: waits for the safest tick. Turns itself off on orbs and while dashing."
 		},
 		"smart-max-delay": {
 			"type": "int",
@@ -59,7 +59,21 @@
 			"min": 10,
 			"max": 500,
 			"name": "Max Delay (ms)",
-			"description": "How long a click can be held back. If it's still deadly after this, it's dropped.",
+			"description": "How far ahead to look for a safe tick. A tap that isn't safe anywhere in this range is dropped.",
+			"control": {
+				"slider": true,
+				"slider-step": 10,
+				"arrows": true,
+				"arrow-step": 10
+			}
+		},
+		"safe-gap": {
+			"type": "int",
+			"default": 60,
+			"min": 10,
+			"max": 300,
+			"name": "Big Safe Area (ms)",
+			"description": "If the safe window in front of you is at least this long, your input goes through instantly. If it's shorter, your input is moved to the middle of the window (the safest tick).",
 			"control": {
 				"slider": true,
 				"slider-step": 10,

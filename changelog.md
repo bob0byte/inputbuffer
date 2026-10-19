@@ -1,3 +1,7 @@
+# v5.1.0
+- Scans ahead before applying an input: big safe area = instant, small = middle of the window, deadly = waits for the safest tick
+- New setting: Big Safe Area (ms)
+
 # v5.0.0
 - Wave only: all features are now active only in wave; other gamemodes are untouched
 - Renamed to Wave Assist (community.wave-assist)
