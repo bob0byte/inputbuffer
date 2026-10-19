@@ -10,7 +10,7 @@ Download the installer from https://geode-sdk.org, run it and pick your Geometry
 3. Open the **Actions** tab. If asked, click "I understand my workflows, enable them".
    The "Build Geode Mod" run starts after your next upload, or press "Run workflow".
 4. When it shows a green check (about 5-10 min), open the run, download **Build Output** and unzip it.
-5. Copy `aljishi.input-buffer.geode` into `Geometry Dash/geode/mods`, then restart GD.
+5. Copy `community.input-buffer.geode` into `Geometry Dash/geode/mods`, then restart GD.
 
 If the run shows a red X, open it, copy the error text and send it to me.
 
